@@ -81,14 +81,44 @@ const closers = [
   'It turns, indifferent, exactly as it always has.',
   'Old charts mark it with a single warning glyph.',
   'Its day and night trade places without witness.',
+  'A good place to be forgotten in.',
+  'The light that reaches it left its star an age ago.',
+  'Explorers note the view, and move on.',
 ];
 
 const lifeHints = [
   'Faint organic signatures cling to the terminator line.',
   'Spectral lines hint at something stirring below.',
-  'The scan finds no life, only the patience of stone.',
+  'Chlorophyll-green glints back from the long valleys.',
   'Chemistry here sits right on the edge of becoming.',
+  'Something down there is breathing, slowly.',
 ];
+
+const deadHints = [
+  'The scan finds no life, only the patience of stone.',
+  'Nothing has ever drawn breath here.',
+  'A clean, dead spectrum, top to bottom.',
+];
+
+function gravityNote(g) {
+  if (g < 0.4) return 'You could almost step off it.';
+  if (g < 0.85) return 'A light pull, easy on the bones.';
+  if (g > 2.2) return 'Its gravity would pin you flat.';
+  if (g > 1.4) return 'Heavy underfoot, every step earned.';
+  return null;
+}
+
+function moonNote(n) {
+  if (n === 0) return null;
+  if (n === 1) return 'A single moon keeps it company.';
+  return `${n} moons trade places across its skies.`;
+}
+
+function tempNote(c) {
+  if (c < -120) return 'Cold enough to freeze the air itself.';
+  if (c > 600) return 'Hot enough to run rock like water.';
+  return null;
+}
 
 export function planetLore(rng, traits) {
   const adjs = worldAdjectives[traits.kind] || worldAdjectives.barren;
@@ -96,11 +126,18 @@ export function planetLore(rng, traits) {
   const sky = skyWords[traits.atmosphere] || 'an uncertain sky';
   const lines = [];
   lines.push(`A ${adj} ${traits.kind === 'gas' ? 'giant' : 'world'} beneath ${sky}.`);
-  if (chance(rng, 0.7)) {
-    lines.push(pick(rng, traits.habitable ? lifeHints : closers));
-  }
-  if (chance(rng, 0.35)) {
-    lines.push(pick(rng, closers));
+
+  const extras = [];
+  extras.push(pick(rng, traits.habitable ? lifeHints : deadHints));
+  const g = gravityNote(traits.gravity); if (g) extras.push(g);
+  const t = tempNote(traits.tempC); if (t) extras.push(t);
+  const m = moonNote(traits.moons); if (m && chance(rng, 0.7)) extras.push(m);
+  extras.push(pick(rng, closers));
+
+  // take one or two of the flavour lines, shuffled by the seed
+  const wanted = chance(rng, 0.5) ? 2 : 1;
+  for (let i = 0; i < wanted && extras.length; i++) {
+    lines.push(extras.splice((rng() * extras.length) | 0, 1)[0]);
   }
   return lines;
 }

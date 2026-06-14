@@ -205,14 +205,15 @@ export function makeGalaxy(seed) {
     ctx.globalAlpha = 1;
   }
 
-  // faint parallax dust between the foreground stars
+  // faint parallax dust between the foreground stars, three depths
   function drawDust(ctx, cam, time) {
     const layers = [
-      { par: 0.5, step: 46, a: 0.5 },
-      { par: 0.72, step: 64, a: 0.75 },
+      { par: 0.32, step: 38, a: 0.32, col: '#9fb0e8' },
+      { par: 0.5, step: 48, a: 0.5, col: '#c2cdf2' },
+      { par: 0.72, step: 64, a: 0.78, col: '#e2e8ff' },
     ];
-    ctx.fillStyle = '#cdd6ff';
     for (const L of layers) {
+      ctx.fillStyle = L.col;
       const offx = cam.x * (1 - L.par);
       const offy = cam.y * (1 - L.par);
       const x0 = cam.wx(0) - offx, x1 = cam.wx(cam.w) - offx;
@@ -287,5 +288,5 @@ export function makeGalaxy(seed) {
     return best;
   }
 
-  return { draw, pick, starById, nameOf, density, visible, CLASSES, CELL };
+  return { draw, pick, starById, nameOf, density, CLASSES, CELL };
 }

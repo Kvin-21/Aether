@@ -1,11 +1,12 @@
-// A single star system: the star, its orbits and the planets riding them.
-// Planets are drawn as small shaded discs here; the heavy lit sphere only
-// gets baked when you actually approach one.
-import { mulberry32, range, chance, weighted } from './rng.js';
+// A single star system: the star (sometimes two), inclined orbits, planets,
+// and the odd asteroid belt. Planets are shaded discs here and scale a little
+// with depth so the plane reads as tilted; the heavy lit sphere only gets baked
+// when you actually approach one.
+import { mulberry32, range, chance, weighted, intRange } from './rng.js';
 import { planetTraits } from './planet.js';
 
 const TAU = Math.PI * 2;
-const FLATTEN = 0.58;
+const FLATTEN = 0.4;
 
 function toRgb(str) {
   if (str[0] === '#') {
@@ -20,6 +21,11 @@ function shade(rgb, f) {
   return `rgb(${c(rgb[0])},${c(rgb[1])},${c(rgb[2])})`;
 }
 
+const companionClasses = [
+  { col: '#ffd199', r: 0.6 }, { col: '#ff9c66', r: 0.5 },
+  { col: '#cdd8ff', r: 0.7 }, { col: '#fff2d6', r: 0.6 },
+];
+
 export function makeSystem(star) {
   const rng = mulberry32((star.seed ^ 0x515751) >>> 0);
   const starR = star.cls.r * 7 + 17;
@@ -28,7 +34,7 @@ export function makeSystem(star) {
   ]).v;
 
   const planets = [];
-  let orbit = starR + range(rng, 54, 86);
+  let orbit = starR + range(rng, 56, 90);
   for (let i = 0; i < count; i++) {
     orbit += range(rng, 44, 88) * (1 + i * 0.16);
     const orbitNorm = count > 1 ? i / (count - 1) : 0.4;
@@ -42,7 +48,34 @@ export function makeSystem(star) {
     });
   }
 
-  const outer = orbit + 24;
+  // a binary companion, sitting close in so both suns share the centre
+  let companion = null;
+  if (chance(rng, 0.28)) {
+    const cc = companionClasses[(rng() * companionClasses.length) | 0];
+    companion = {
+      col: cc.col, rgb: toRgb(cc.col), r: starR * cc.r,
+      orbit: starR * range(rng, 2.0, 3.2), phase: rng() * TAU,
+      speed: range(rng, 0.4, 0.8) / Math.sqrt(starR * 3),
+    };
+  }
+
+  // an asteroid belt tucked into a gap
+  let belt = null;
+  if (chance(rng, 0.5) && planets.length >= 2) {
+    const gap = 1 + ((rng() * (planets.length - 1)) | 0);
+    const rad = (planets[gap - 1].orbit + planets[gap].orbit) / 2;
+    const parts = [];
+    const n = 220;
+    for (let i = 0; i < n; i++) {
+      parts.push({
+        a: rng() * TAU, r: rad + range(rng, -16, 16),
+        s: rng() < 0.15 ? 1.5 : 0.9, b: 0.3 + rng() * 0.6,
+      });
+    }
+    belt = { rad, parts, speed: 0.16 / Math.sqrt(rad) };
+  }
+
+  const outer = orbit + (companion ? 0 : 0) + 26;
 
   const bg = [];
   const brng = mulberry32((star.seed ^ 0xbeef) >>> 0);
@@ -55,25 +88,35 @@ export function makeSystem(star) {
     return [cx + Math.cos(a) * p.orbit * scale, cy + Math.sin(a) * p.orbit * scale * FLATTEN, a];
   }
 
-  function drawStar(ctx, cx, cy, sr, time) {
-    const rgb = toRgb(star.cls.col);
-    const pulse = 1 + 0.02 * Math.sin(time * 1.3);
-    sr *= pulse;
+  function drawStarBody(ctx, col, rgb, cx, cy, sr, time) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const glow = ctx.createRadialGradient(cx, cy, sr * 0.4, cx, cy, sr * 6);
+    const glow = ctx.createRadialGradient(cx, cy, sr * 0.4, cx, cy, sr * 6.5);
     glow.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.5)`);
-    glow.addColorStop(0.3, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.16)`);
+    glow.addColorStop(0.3, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.15)`);
     glow.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(cx, cy, sr * 6, 0, TAU);
+    ctx.arc(cx, cy, sr * 6.5, 0, TAU);
     ctx.fill();
+    // a soft four-point glint so the star reads as a light source
+    const ray = sr * 7;
+    const flick = 0.8 + 0.2 * Math.sin(time * 2.1);
+    for (let i = 0; i < 2; i++) {
+      const horiz = i === 0;
+      const g = ctx.createLinearGradient(horiz ? cx - ray : cx, horiz ? cy : cy - ray, horiz ? cx + ray : cx, horiz ? cy : cy + ray);
+      g.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+      g.addColorStop(0.5, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.16 * flick})`);
+      g.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+      ctx.fillStyle = g;
+      if (horiz) ctx.fillRect(cx - ray, cy - sr * 0.16, ray * 2, sr * 0.32);
+      else ctx.fillRect(cx - sr * 0.16, cy - ray, sr * 0.32, ray * 2);
+    }
     ctx.restore();
 
     const disc = ctx.createRadialGradient(cx - sr * 0.25, cy - sr * 0.25, sr * 0.1, cx, cy, sr);
     disc.addColorStop(0, '#fffefb');
-    disc.addColorStop(0.45, star.cls.col);
+    disc.addColorStop(0.45, col);
     disc.addColorStop(1, shade(rgb, 0.7));
     ctx.fillStyle = disc;
     ctx.beginPath();
@@ -88,7 +131,7 @@ export function makeSystem(star) {
       ctx.save();
       ctx.translate(px, py);
       ctx.scale(1, 0.34);
-      ctx.strokeStyle = `rgba(220,210,190,0.5)`;
+      ctx.strokeStyle = 'rgba(220,210,190,0.5)';
       ctx.lineWidth = Math.max(1, r * 0.18);
       ctx.beginPath();
       ctx.arc(0, 0, r * 1.7, Math.PI, TAU);
@@ -107,13 +150,27 @@ export function makeSystem(star) {
       ctx.save();
       ctx.translate(px, py);
       ctx.scale(1, 0.34);
-      ctx.strokeStyle = `rgba(235,225,205,0.6)`;
+      ctx.strokeStyle = 'rgba(235,225,205,0.6)';
       ctx.lineWidth = Math.max(1, r * 0.18);
       ctx.beginPath();
       ctx.arc(0, 0, r * 1.7, 0, Math.PI);
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  function drawBelt(ctx, cx, cy, scale, time) {
+    ctx.fillStyle = '#b9b3a4';
+    for (const a of belt.parts) {
+      const ang = a.a + time * belt.speed;
+      const depth = Math.sin(ang);
+      ctx.globalAlpha = a.b * (0.55 + 0.45 * (depth * 0.5 + 0.5));
+      const x = cx + Math.cos(ang) * a.r * scale;
+      const y = cy + Math.sin(ang) * a.r * scale * FLATTEN;
+      const s = a.s * (0.8 + 0.4 * (depth * 0.5 + 0.5));
+      ctx.fillRect(x, y, s, s);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function draw(ctx, cx, cy, scale, time, hoverIdx, w, h) {
@@ -128,27 +185,46 @@ export function makeSystem(star) {
 
     ctx.lineWidth = 1;
     for (const p of planets) {
-      ctx.strokeStyle = 'rgba(150,170,230,0.18)';
+      ctx.strokeStyle = 'rgba(150,170,230,0.16)';
       ctx.beginPath();
       ctx.ellipse(cx, cy, p.orbit * scale, p.orbit * scale * FLATTEN, 0, 0, TAU);
       ctx.stroke();
     }
 
+    if (belt) drawBelt(ctx, cx, cy, scale, time);
+
     const order = planets
       .map((p) => ({ p, pos: planetPos(p, time, cx, cy, scale) }))
       .sort((a, b) => Math.sin(a.pos[2]) - Math.sin(b.pos[2]));
 
-    for (const o of order) if (Math.sin(o.pos[2]) <= 0) drawDot(ctx, o.p, o.pos[0], o.pos[1], o.p.size * scale, cx, cy);
-    drawStar(ctx, cx, cy, starR * scale, time);
-    for (const o of order) if (Math.sin(o.pos[2]) > 0) drawDot(ctx, o.p, o.pos[0], o.pos[1], o.p.size * scale, cx, cy);
+    const depthR = (a) => 1 + 0.32 * Math.sin(a);
+    for (const o of order) {
+      if (Math.sin(o.pos[2]) > 0) break;
+      drawDot(ctx, o.p, o.pos[0], o.pos[1], o.p.size * scale * depthR(o.pos[2]), cx, cy);
+    }
+
+    // companion behind, primary, companion in front
+    let comp = null;
+    if (companion) {
+      const ca = companion.phase + time * companion.speed;
+      comp = { x: cx + Math.cos(ca) * companion.orbit * scale, y: cy + Math.sin(ca) * companion.orbit * scale * FLATTEN, z: Math.sin(ca) };
+    }
+    if (comp && comp.z <= 0) drawStarBody(ctx, companion.col, companion.rgb, comp.x, comp.y, companion.r * scale, time);
+    drawStarBody(ctx, star.cls.col, toRgb(star.cls.col), cx, cy, starR * scale * (1 + 0.02 * Math.sin(time * 1.3)), time);
+    if (comp && comp.z > 0) drawStarBody(ctx, companion.col, companion.rgb, comp.x, comp.y, companion.r * scale, time);
+
+    for (const o of order) {
+      if (Math.sin(o.pos[2]) <= 0) continue;
+      drawDot(ctx, o.p, o.pos[0], o.pos[1], o.p.size * scale * depthR(o.pos[2]), cx, cy);
+    }
 
     if (hoverIdx != null && planets[hoverIdx]) {
-      const [px, py] = planetPos(planets[hoverIdx], time, cx, cy, scale);
-      const r = planets[hoverIdx].size * scale;
+      const pos = planetPos(planets[hoverIdx], time, cx, cy, scale);
+      const r = planets[hoverIdx].size * scale * depthR(pos[2]);
       ctx.strokeStyle = 'rgba(180,205,255,0.85)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(px, py, r + 7 + Math.sin(time * 4), 0, TAU);
+      ctx.arc(pos[0], pos[1], r + 7 + Math.sin(time * 4), 0, TAU);
       ctx.stroke();
     }
   }
@@ -156,9 +232,9 @@ export function makeSystem(star) {
   function pick(cx, cy, scale, time, sx, sy) {
     let best = null, bestD = Infinity;
     for (const p of planets) {
-      const [px, py] = planetPos(p, time, cx, cy, scale);
-      const r = p.size * scale + 9;
-      const d = (px - sx) ** 2 + (py - sy) ** 2;
+      const pos = planetPos(p, time, cx, cy, scale);
+      const r = p.size * scale * (1 + 0.32 * Math.sin(pos[2])) + 9;
+      const d = (pos[0] - sx) ** 2 + (pos[1] - sy) ** 2;
       if (d < r * r && d < bestD) { bestD = d; best = p.index; }
     }
     return best;

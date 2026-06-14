@@ -7,7 +7,8 @@ const els = {
   intro: $('intro'), seedInput: $('seedInput'), randomBtn: $('randomBtn'),
   enterBtn: $('enterBtn'), hud: $('hud'), backBtn: $('backBtn'),
   hudScene: $('hudScene'), hudInfo: $('hudInfo'), shareBtn: $('shareBtn'),
-  newBtn: $('newBtn'), scan: $('scan'), tip: $('tip'), toast: $('toast'),
+  newBtn: $('newBtn'), jumpInput: $('jumpInput'), scan: $('scan'),
+  tip: $('tip'), toast: $('toast'),
 };
 
 export const ui = {
@@ -22,6 +23,15 @@ export const ui = {
     if (handlers.enter) {
       els.seedInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') handlers.enter();
+      });
+    }
+    if (handlers.jump) {
+      els.jumpInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && els.jumpInput.value.trim()) {
+          handlers.jump(els.jumpInput.value.trim());
+          els.jumpInput.value = '';
+          els.jumpInput.blur();
+        }
       });
     }
   },

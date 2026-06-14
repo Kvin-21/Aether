@@ -113,13 +113,14 @@ function warpTo(swap, dur = 0.72) {
 function enterUniverse(seed) {
   setSeed(seed);
   const [sx, sy] = findStart();
-  cam.x = sx; cam.y = sy; cam.zoom = 1.6;
+  cam.x = cam.tx = sx; cam.y = cam.ty = sy;
+  cam.zoom = 0.9; cam.tz = 1.6;        // gentle push-in on arrival
   state.scene = 'galaxy';
   state.star = state.starId = state.system = null;
   ui.hideIntro();
   ui.showHud();
   ui.hideScan();
-  warpTo(() => {}, 0.85);
+  warpTo(() => {}, 0.9);
   commitState();
 }
 
@@ -128,6 +129,9 @@ function enterStar(star) {
   state.starId = star.id;
   state.galaxy.nameOf(star);
   state.system = makeSystem(star);
+  // remember where we were, then dive towards the star
+  state.galaxyView = { x: cam.tx, y: cam.ty, zoom: cam.tz };
+  cam.tx = star.x; cam.ty = star.y; cam.tz = cam.zoom * 4.5;
   warpTo(() => {
     state.scene = 'system';
     ui.hideTip();
@@ -158,6 +162,9 @@ function goBack() {
     ui.hideScan();
     warpTo(() => { state.scene = 'system'; commitState(); }, 0.6);
   } else if (state.scene === 'system') {
+    if (state.galaxyView) {
+      cam.tx = state.galaxyView.x; cam.ty = state.galaxyView.y; cam.tz = state.galaxyView.zoom;
+    }
     warpTo(() => { state.scene = 'galaxy'; commitState(); }, 0.6);
   } else if (state.scene === 'galaxy') {
     state.scene = 'intro';
@@ -182,19 +189,27 @@ function showScan() {
 }
 
 // ---- URL state ----
-function commitState() {
-  writeState({
+function currentState() {
+  const gx = state.galaxyView || { x: cam.tx, y: cam.ty, zoom: cam.tz };
+  const galaxy = state.scene === 'galaxy' || state.scene === 'intro';
+  return {
     seed: state.seed,
     scene: state.scene === 'intro' ? 'galaxy' : state.scene,
-    x: cam.x, y: cam.y, zoom: cam.zoom,
+    x: galaxy ? cam.tx : gx.x,
+    y: galaxy ? cam.ty : gx.y,
+    zoom: galaxy ? cam.tz : gx.zoom,
     starId: state.starId,
     planetIdx: state.scene === 'planet' ? state.planetIdx : null,
-  });
+  };
+}
+
+function commitState() {
+  writeState(currentState());
 }
 
 function applyState(st) {
   setSeed(st.seed);
-  cam.x = st.x; cam.y = st.y; cam.zoom = st.zoom || 1;
+  cam.set(st.x, st.y, st.zoom || 1);
   ui.hideIntro();
   ui.showHud();
 
@@ -202,6 +217,7 @@ function applyState(st) {
     state.star = state.galaxy.starById(st.starId);
     state.starId = st.starId;
     state.galaxy.nameOf(state.star);
+    state.galaxyView = { x: st.x, y: st.y, zoom: st.zoom || 1 };
     state.system = makeSystem(state.star);
     if (st.scene === 'planet' && st.planetIdx != null && state.system.planets[st.planetIdx]) {
       state.planetIdx = st.planetIdx;
@@ -312,6 +328,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (dragging && state.scene === 'galaxy') {
       cam.x -= dx / cam.zoom;
       cam.y -= dy / cam.zoom;
+      cam.tx = cam.x; cam.ty = cam.y;
       canvas.classList.add('grabbing');
     }
     p.x = x; p.y = y;
@@ -322,7 +339,7 @@ canvas.addEventListener('pointermove', (e) => {
     const my = (pts[0].y + pts[1].y) / 2;
     const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     if (state.scene === 'galaxy' && pinchDist > 0) {
-      zoomAt(mx, my, (pinchZoom * dist / pinchDist) / cam.zoom);
+      zoomAt(mx, my, (pinchZoom * dist / pinchDist) / cam.zoom, false);
     }
     dragging = true;
   }
@@ -344,18 +361,24 @@ function endPointer(e) {
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 
-function zoomAt(mx, my, factor) {
-  const wx = cam.wx(mx), wy = cam.wy(my);
-  cam.zoom = Math.max(0.22, Math.min(7, cam.zoom * factor));
-  cam.x = wx - (mx - cam.w / 2) / cam.zoom;
-  cam.y = wy - (my - cam.h / 2) / cam.zoom;
+function zoomAt(mx, my, factor, eased) {
+  const bz = eased ? cam.tz : cam.zoom;
+  const bx = eased ? cam.tx : cam.x;
+  const by = eased ? cam.ty : cam.y;
+  const wx = (mx - cam.w / 2) / bz + bx;
+  const wy = (my - cam.h / 2) / bz + by;
+  const nz = Math.max(0.22, Math.min(7, bz * factor));
+  cam.tz = nz;
+  cam.tx = wx - (mx - cam.w / 2) / nz;
+  cam.ty = wy - (my - cam.h / 2) / nz;
+  if (!eased) { cam.x = cam.tx; cam.y = cam.ty; cam.zoom = nz; }
 }
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (state.scene !== 'galaxy' || state.warp) return;
   const [mx, my] = pointerLocal(e);
-  zoomAt(mx, my, Math.exp(-e.deltaY * 0.0014));
+  zoomAt(mx, my, Math.exp(-e.deltaY * 0.0014), true);
   scheduleCommit();
 }, { passive: false });
 
@@ -413,6 +436,8 @@ function frame(now) {
 }
 
 function render(dt) {
+  cam.ease(0.16);
+
   if (state.warp) {
     const w = state.warp;
     w.t += dt / w.dur;
@@ -461,14 +486,9 @@ ui.on({
     enterUniverse(seed);
   },
   random: () => ui.setSeedInput(randomSeed()),
+  jump: (seed) => { ui.hideScan(); enterUniverse(seed); },
   share: async () => {
-    const ok = await copy(shareLink({
-      seed: state.seed,
-      scene: state.scene === 'intro' ? 'galaxy' : state.scene,
-      x: cam.x, y: cam.y, zoom: cam.zoom,
-      starId: state.starId,
-      planetIdx: state.scene === 'planet' ? state.planetIdx : null,
-    }));
+    const ok = await copy(shareLink(currentState()));
     ui.toast(ok ? 'Link copied to clipboard' : 'Could not copy link');
   },
   newU: () => {
@@ -494,21 +514,3 @@ if (boot) {
   ui.showIntro();
 }
 requestAnimationFrame(frame);
-
-// --- temporary QA hook, removed before this stage ships ---
-if (location.search.includes('qa')) {
-  const skip = () => { while (state.warp) { state.warp.swap(); state.warp = null; } cam.x = cam.tx; cam.y = cam.ty; cam.zoom = cam.tz; };
-  window.__qa = {
-    state, cam,
-    enter(seed) { enterUniverse(seed); skip(); },
-    nearestStar() {
-      const stars = state.galaxy.visible(cam, 600);
-      let best = null, bd = Infinity;
-      for (const s of stars) { const d = (s.x - cam.x) ** 2 + (s.y - cam.y) ** 2; if (d < bd) { bd = d; best = s; } }
-      if (best) { enterStar(best); skip(); }
-      return best && best.id;
-    },
-    planet(i) { enterPlanet(i); skip(); },
-    back() { goBack(); skip(); },
-  };
-}

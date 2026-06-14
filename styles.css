@@ -188,6 +188,25 @@ button {
 .ghost:active { transform: translateY(1px); }
 .ghost.back { width: 42px; font-size: 22px; line-height: 1; padding: 4px 0; }
 
+.jump {
+  width: 132px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  outline: none;
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s, width 0.2s;
+}
+.jump::placeholder { color: #6b749a; }
+.jump:focus { border-color: rgba(122, 162, 255, 0.6); width: 168px; }
+@media (max-width: 560px) { .jump { display: none; } }
+
 /* ---- scan panel ---- */
 .scan {
   position: fixed;
