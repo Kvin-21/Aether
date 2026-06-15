@@ -8,10 +8,12 @@ import { bakePlanet, drawPlanet } from './planet.js';
 import { planetLore, roman } from './lore.js';
 import { ui, scanData } from './ui.js';
 import { readState, writeState, shareLink, copy } from './share.js';
+import { makeAudio } from './audio.js';
 
 const TAU = Math.PI * 2;
 const canvas = document.getElementById('scene');
 const ctx = canvas.getContext('2d', { alpha: false });
+const audio = makeAudio();
 
 const cam = {
   x: 0, y: 0, zoom: 1, tx: 0, ty: 0, tz: 1, w: window.innerWidth, h: window.innerHeight,
@@ -31,8 +33,11 @@ const state = {
   seed: '', seedHash: 0, scene: 'intro',
   galaxy: null, star: null, starId: null,
   system: null, planetIdx: null, planet: null,
-  planetBg: null, warp: null, hover: null,
+  planetBg: null, warp: null, hover: null, loading: false,
 };
+
+// a quiet galaxy that drifts behind the intro screen
+const introGalaxy = makeGalaxy(hashString('aether'));
 
 // ---- canvas sizing ----
 function resize() {
@@ -120,6 +125,8 @@ function enterUniverse(seed) {
   ui.hideIntro();
   ui.showHud();
   ui.hideScan();
+  state.loading = true;
+  ui.showLoader();
   warpTo(() => {}, 0.9);
   commitState();
 }
@@ -147,6 +154,8 @@ function enterPlanet(idx) {
     state.planet.lore = planetLore(mulberry32((state.planet.seed ^ 0xa17e) >>> 0), state.planet);
   }
   state.planetBg = genStars(state.planet.seed ^ 0x33, 150);
+  state.loading = true;
+  ui.showLoader();
   warpTo(() => {
     state.scene = 'planet';
     bakePlanet(state.planet, planetRadius());
@@ -212,6 +221,8 @@ function applyState(st) {
   cam.set(st.x, st.y, st.zoom || 1);
   ui.hideIntro();
   ui.showHud();
+  state.loading = true;
+  ui.showLoader();
 
   if ((st.scene === 'system' || st.scene === 'planet') && st.starId) {
     state.star = state.galaxy.starById(st.starId);
@@ -292,8 +303,6 @@ function handleClick(mx, my) {
   } else if (state.scene === 'system') {
     const idx = state.system.pick(cam.w / 2, cam.h / 2, systemScale(), time, mx, my);
     if (idx != null) enterPlanet(idx);
-  } else if (state.scene === 'planet') {
-    goBack();
   }
 }
 
@@ -367,7 +376,7 @@ function zoomAt(mx, my, factor, eased) {
   const by = eased ? cam.ty : cam.y;
   const wx = (mx - cam.w / 2) / bz + bx;
   const wy = (my - cam.h / 2) / bz + by;
-  const nz = Math.max(0.22, Math.min(7, bz * factor));
+  const nz = Math.max(0.35, Math.min(7, bz * factor));
   cam.tz = nz;
   cam.tx = wx - (mx - cam.w / 2) / nz;
   cam.ty = wy - (my - cam.h / 2) / nz;
@@ -442,13 +451,19 @@ function render(dt) {
     const w = state.warp;
     w.t += dt / w.dur;
     if (!w.swapped && w.t >= 0.5) { w.swap(); w.swapped = true; }
-    if (w.t >= 1) state.warp = null;
+    if (w.t >= 1) {
+      state.warp = null;
+      if (state.loading) { state.loading = false; ui.hideLoader(); }
+    }
   }
 
   ctx.fillStyle = '#05060c';
   ctx.fillRect(0, 0, cam.w, cam.h);
 
-  if (state.scene === 'galaxy') {
+  if (state.scene === 'intro') {
+    cam.set(time * 5, Math.sin(time * 0.05) * 90, 1.08);
+    introGalaxy.draw(ctx, cam, time, null);
+  } else if (state.scene === 'galaxy') {
     state.galaxy.draw(ctx, cam, time, state.hover);
   } else if (state.scene === 'system') {
     state.system.draw(ctx, cam.w / 2, cam.h / 2, systemScale(), time, state.hover, cam.w, cam.h);
@@ -460,10 +475,60 @@ function render(dt) {
 
   if (state.warp) drawWarp(state.warp.t);
 
-  // gentle vignette over everything
+  applyBloom();
   drawVignette();
+  drawGrain();
 
   if (state.scene !== 'intro') updateHud();
+}
+
+// cheap bloom: a blurred, downscaled copy added back over the bright bits
+let bloomCv = null, bloomCtx = null;
+function applyBloom() {
+  const bw = Math.max(1, (cam.w / 4) | 0);
+  const bh = Math.max(1, (cam.h / 4) | 0);
+  if (!bloomCv) { bloomCv = document.createElement('canvas'); bloomCtx = bloomCv.getContext('2d'); }
+  if (bloomCv.width !== bw || bloomCv.height !== bh) { bloomCv.width = bw; bloomCv.height = bh; }
+  bloomCtx.clearRect(0, 0, bw, bh);
+  bloomCtx.drawImage(canvas, 0, 0, bw, bh);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.34;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bloomCv, 0, 0, cam.w, cam.h);
+  ctx.restore();
+}
+
+// a few pre-baked grain tiles, dithered over the frame for a filmic feel
+const grainTiles = [];
+function makeGrain() {
+  for (let n = 0; n < 4; n++) {
+    const g = document.createElement('canvas');
+    g.width = g.height = 128;
+    const gc = g.getContext('2d');
+    const id = gc.createImageData(128, 128);
+    for (let i = 0; i < id.data.length; i += 4) {
+      const v = 110 + ((Math.random() * 36) | 0);
+      id.data[i] = id.data[i + 1] = id.data[i + 2] = v;
+      id.data[i + 3] = 255;
+    }
+    gc.putImageData(id, 0, 0);
+    grainTiles.push(g);
+  }
+}
+let grainFrame = 0;
+function drawGrain() {
+  grainFrame++;
+  if (grainFrame & 1) return;             // every other frame is plenty
+  const t = grainTiles[(grainFrame >> 1) % grainTiles.length];
+  const ox = (Math.random() * 128) | 0, oy = (Math.random() * 128) | 0;
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  ctx.globalCompositeOperation = 'overlay';
+  for (let y = -oy; y < cam.h; y += 128) {
+    for (let x = -ox; x < cam.w; x += 128) ctx.drawImage(t, x, y);
+  }
+  ctx.restore();
 }
 
 let vignette = null, vigKey = '';
@@ -498,13 +563,23 @@ ui.on({
     ui.hideScan();
     ui.hideTip();
   },
+  audio: () => ui.setAudio(audio.toggle()),
   back: goBack,
 });
 
 window.addEventListener('hashchange', () => {
   const st = readState();
-  if (st && st.seed !== state.seed) applyState(st);
+  if (!st) return;
+  const cur = currentState();
+  // replaceState (our own writes) never fires hashchange, so this only runs
+  // when someone edits the hash or follows a link, browser back/forward included
+  if (st.seed !== cur.seed || st.scene !== cur.scene ||
+      st.starId !== cur.starId || st.planetIdx !== cur.planetIdx) {
+    applyState(st);
+  }
 });
+
+makeGrain();
 
 const boot = readState();
 if (boot) {

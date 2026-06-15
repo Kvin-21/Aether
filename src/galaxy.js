@@ -96,7 +96,7 @@ export function makeGalaxy(seed) {
       for (let i = 0; i < count; i++) arr.push(makeStar(cx, cy, i));
     }
     cache.set(key, arr);
-    if (cache.size > 6000) cache.clear();
+    if (cache.size > 20000) cache.clear();
     return arr;
   }
 

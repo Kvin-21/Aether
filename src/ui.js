@@ -7,8 +7,8 @@ const els = {
   intro: $('intro'), seedInput: $('seedInput'), randomBtn: $('randomBtn'),
   enterBtn: $('enterBtn'), hud: $('hud'), backBtn: $('backBtn'),
   hudScene: $('hudScene'), hudInfo: $('hudInfo'), shareBtn: $('shareBtn'),
-  newBtn: $('newBtn'), jumpInput: $('jumpInput'), scan: $('scan'),
-  tip: $('tip'), toast: $('toast'),
+  newBtn: $('newBtn'), jumpInput: $('jumpInput'), audioBtn: $('audioBtn'),
+  scan: $('scan'), tip: $('tip'), toast: $('toast'), loader: $('loader'),
 };
 
 export const ui = {
@@ -20,6 +20,7 @@ export const ui = {
     if (handlers.share) els.shareBtn.addEventListener('click', handlers.share);
     if (handlers.newU) els.newBtn.addEventListener('click', handlers.newU);
     if (handlers.back) els.backBtn.addEventListener('click', handlers.back);
+    if (handlers.audio) els.audioBtn.addEventListener('click', handlers.audio);
     if (handlers.enter) {
       els.seedInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') handlers.enter();
@@ -59,6 +60,13 @@ export const ui = {
   setBack(visible) {
     els.backBtn.style.visibility = visible ? 'visible' : 'hidden';
   },
+  setAudio(on) {
+    els.audioBtn.classList.toggle('muted', !on);
+    els.audioBtn.title = on ? 'Ambient sound on' : 'Ambient sound off';
+  },
+
+  showLoader() { els.loader.classList.remove('hidden'); },
+  hideLoader() { els.loader.classList.add('hidden'); },
 
   tip(text, sub, x, y) {
     els.tip.innerHTML = sub ? `${text}<br><span class="small">${sub}</span>` : text;

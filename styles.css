@@ -42,7 +42,7 @@ html, body {
   display: grid;
   place-items: center;
   z-index: 30;
-  background: radial-gradient(120% 90% at 50% 30%, rgba(8, 10, 22, 0.2), rgba(3, 4, 10, 0.86));
+  background: radial-gradient(120% 90% at 50% 32%, rgba(6, 8, 18, 0.12), rgba(3, 4, 10, 0.72));
   animation: fade 0.6s ease;
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -206,6 +206,37 @@ button {
 .jump::placeholder { color: #6b749a; }
 .jump:focus { border-color: rgba(122, 162, 255, 0.6); width: 168px; }
 @media (max-width: 560px) { .jump { display: none; } }
+
+.audio { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; color: var(--ink); }
+.audio .slash { display: none; }
+.audio.muted { color: var(--muted); }
+.audio.muted .wave { display: none; }
+.audio.muted .slash { display: inline; }
+
+.loader {
+  position: fixed;
+  z-index: 35;
+  left: 50%;
+  bottom: 42px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.loader .ring {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(122, 162, 255, 0.25);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- scan panel ---- */
 .scan {
