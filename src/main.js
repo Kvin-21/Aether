@@ -33,7 +33,7 @@ const state = {
   seed: '', seedHash: 0, scene: 'intro',
   galaxy: null, star: null, starId: null,
   system: null, planetIdx: null, planet: null,
-  planetBg: null, warp: null, hover: null, loading: false,
+  planetBg: null, warp: null, hover: null,
 };
 
 // a quiet galaxy that drifts behind the intro screen
@@ -125,8 +125,6 @@ function enterUniverse(seed) {
   ui.hideIntro();
   ui.showHud();
   ui.hideScan();
-  state.loading = true;
-  ui.showLoader();
   warpTo(() => {}, 0.9);
   commitState();
 }
@@ -154,8 +152,6 @@ function enterPlanet(idx) {
     state.planet.lore = planetLore(mulberry32((state.planet.seed ^ 0xa17e) >>> 0), state.planet);
   }
   state.planetBg = genStars(state.planet.seed ^ 0x33, 150);
-  state.loading = true;
-  ui.showLoader();
   warpTo(() => {
     state.scene = 'planet';
     bakePlanet(state.planet, planetRadius());
@@ -221,8 +217,6 @@ function applyState(st) {
   cam.set(st.x, st.y, st.zoom || 1);
   ui.hideIntro();
   ui.showHud();
-  state.loading = true;
-  ui.showLoader();
 
   if ((st.scene === 'system' || st.scene === 'planet') && st.starId) {
     state.star = state.galaxy.starById(st.starId);
@@ -431,10 +425,14 @@ function drawWarp(t) {
 let time = 0;
 let lastT = performance.now();
 
+// rolling frame time so the effects can back off on a struggling device
+let emaMs = 16;
 function frame(now) {
-  const dt = Math.min(0.05, (now - lastT) / 1000);
+  const dtMs = Math.min(60, now - lastT);
+  const dt = Math.min(0.05, dtMs / 1000);
   lastT = now;
   time += dt;
+  emaMs += (dtMs - emaMs) * 0.06;
   try {
     render(dt);
   } catch (err) {
@@ -451,10 +449,7 @@ function render(dt) {
     const w = state.warp;
     w.t += dt / w.dur;
     if (!w.swapped && w.t >= 0.5) { w.swap(); w.swapped = true; }
-    if (w.t >= 1) {
-      state.warp = null;
-      if (state.loading) { state.loading = false; ui.hideLoader(); }
-    }
+    if (w.t >= 1) state.warp = null;
   }
 
   ctx.fillStyle = '#05060c';
@@ -475,9 +470,10 @@ function render(dt) {
 
   if (state.warp) drawWarp(state.warp.t);
 
-  applyBloom();
+  // shed the heavier effects first if the device is struggling
+  if (emaMs < 32) applyBloom();
   drawVignette();
-  drawGrain();
+  if (emaMs < 23) drawGrain();
 
   if (state.scene !== 'intro') updateHud();
 }

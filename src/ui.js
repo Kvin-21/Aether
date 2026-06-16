@@ -8,7 +8,7 @@ const els = {
   enterBtn: $('enterBtn'), hud: $('hud'), backBtn: $('backBtn'),
   hudScene: $('hudScene'), hudInfo: $('hudInfo'), shareBtn: $('shareBtn'),
   newBtn: $('newBtn'), jumpInput: $('jumpInput'), audioBtn: $('audioBtn'),
-  scan: $('scan'), tip: $('tip'), toast: $('toast'), loader: $('loader'),
+  scan: $('scan'), tip: $('tip'), toast: $('toast'),
 };
 
 export const ui = {
@@ -64,9 +64,6 @@ export const ui = {
     els.audioBtn.classList.toggle('muted', !on);
     els.audioBtn.title = on ? 'Ambient sound on' : 'Ambient sound off';
   },
-
-  showLoader() { els.loader.classList.remove('hidden'); },
-  hideLoader() { els.loader.classList.add('hidden'); },
 
   tip(text, sub, x, y) {
     els.tip.innerHTML = sub ? `${text}<br><span class="small">${sub}</span>` : text;

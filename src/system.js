@@ -89,34 +89,33 @@ export function makeSystem(star) {
   }
 
   function drawStarBody(ctx, col, rgb, cx, cy, sr, time) {
+    const pulse = 0.9 + 0.1 * Math.sin(time * 1.6);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const glow = ctx.createRadialGradient(cx, cy, sr * 0.4, cx, cy, sr * 6.5);
-    glow.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.5)`);
-    glow.addColorStop(0.3, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.15)`);
-    glow.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-    ctx.fillStyle = glow;
+    // wide, soft corona
+    const outer = ctx.createRadialGradient(cx, cy, sr * 0.5, cx, cy, sr * 7.5);
+    outer.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.32)`);
+    outer.addColorStop(0.28, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.1)`);
+    outer.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+    ctx.fillStyle = outer;
     ctx.beginPath();
-    ctx.arc(cx, cy, sr * 6.5, 0, TAU);
+    ctx.arc(cx, cy, sr * 7.5, 0, TAU);
     ctx.fill();
-    // a soft four-point glint so the star reads as a light source
-    const ray = sr * 7;
-    const flick = 0.8 + 0.2 * Math.sin(time * 2.1);
-    for (let i = 0; i < 2; i++) {
-      const horiz = i === 0;
-      const g = ctx.createLinearGradient(horiz ? cx - ray : cx, horiz ? cy : cy - ray, horiz ? cx + ray : cx, horiz ? cy : cy + ray);
-      g.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-      g.addColorStop(0.5, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.16 * flick})`);
-      g.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-      ctx.fillStyle = g;
-      if (horiz) ctx.fillRect(cx - ray, cy - sr * 0.16, ray * 2, sr * 0.32);
-      else ctx.fillRect(cx - sr * 0.16, cy - ray, sr * 0.32, ray * 2);
-    }
+    // tight, hot inner halo so the star reads as a bright source
+    const inner = ctx.createRadialGradient(cx, cy, sr * 0.6, cx, cy, sr * 2.6 * pulse);
+    inner.addColorStop(0, `rgba(255,255,250,0.55)`);
+    inner.addColorStop(0.4, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.4)`);
+    inner.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+    ctx.fillStyle = inner;
+    ctx.beginPath();
+    ctx.arc(cx, cy, sr * 2.6 * pulse, 0, TAU);
+    ctx.fill();
     ctx.restore();
 
-    const disc = ctx.createRadialGradient(cx - sr * 0.25, cy - sr * 0.25, sr * 0.1, cx, cy, sr);
+    const disc = ctx.createRadialGradient(cx - sr * 0.22, cy - sr * 0.22, sr * 0.1, cx, cy, sr);
     disc.addColorStop(0, '#fffefb');
-    disc.addColorStop(0.45, col);
+    disc.addColorStop(0.5, col);
+    disc.addColorStop(0.92, shade(rgb, 0.92));
     disc.addColorStop(1, shade(rgb, 0.7));
     ctx.fillStyle = disc;
     ctx.beginPath();

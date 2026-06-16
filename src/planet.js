@@ -154,6 +154,22 @@ export function planetTraits(star, index, count, orbitNorm) {
   };
 }
 
+// a seeded warm/cool and brightness grade so two worlds of the same kind never
+// look quite alike
+function colourGrade(seed, strength) {
+  const r = mulberry32((seed ^ 0x6c1d) >>> 0);
+  const warm = (r() * 2 - 1) * 0.2 * strength;
+  const green = (r() * 2 - 1) * 0.12 * strength;
+  const bright = 0.88 + r() * 0.22;
+  return [
+    Math.max(0, (1 + warm) * bright),
+    Math.max(0, (1 + green) * bright),
+    Math.max(0, (1 - warm) * bright),
+  ];
+}
+
+const reliefBy = { barren: 7.5, desert: 5.5, terran: 4, ocean: 3, ice: 2.6, lava: 0 };
+
 function buildAlbedo(traits, TW, TH) {
   const noise = makeNoise((traits.seed ^ 0x9e37) >>> 0);
   const out = new Uint8ClampedArray(TW * TH * 3);
@@ -165,6 +181,14 @@ function buildAlbedo(traits, TW, TH) {
   if (kind === 'gas') {
     const bands = gasBands[(traits.seed >>> 3) % gasBands.length];
     const swirl = makeNoise((traits.seed ^ 0x1234) >>> 0);
+    const grade = colourGrade(traits.seed, 0.6);
+    // a great storm oval, like Jupiter's red spot, on most giants
+    const sr = mulberry32((traits.seed ^ 0x57033) >>> 0);
+    const hasStorm = sr() < 0.7;
+    const slat = (sr() * 0.7 - 0.35) * Math.PI;
+    const slon = sr() * TAU;
+    const swl = 0.5 + sr() * 0.5, shl = 0.16 + sr() * 0.12;
+    const storm = [220, 150, 110];
     for (let y = 0; y < TH; y++) {
       const lat = (y / TH - 0.5) * Math.PI;
       for (let x = 0; x < TW; x++, p += 3, s++) {
@@ -172,24 +196,59 @@ function buildAlbedo(traits, TW, TH) {
         const warp = (swirl.sphere(lon, lat * 0.7, 2.0, 3) - 0.5) * 0.5;
         const v = Math.sin((lat * 5.5) + warp * 3.2) * 0.5 + 0.5;
         const turb = noise.sphere(lon, lat, 5.0, 4);
-        let band = clamp(v * 3 + (turb - 0.5) * 1.1, 0, 3);
+        const band = clamp(v * 3 + (turb - 0.5) * 1.1, 0, 3);
         mix3(bands[band | 0], bands[Math.min(3, (band | 0) + 1)], band - (band | 0), tmp);
-        out[p] = tmp[0]; out[p + 1] = tmp[1]; out[p + 2] = tmp[2];
+        if (hasStorm) {
+          let dl = Math.abs(lon - slon); if (dl > Math.PI) dl = TAU - dl;
+          const ed = (dl / swl) ** 2 + ((lat - slat) / shl) ** 2;
+          if (ed < 1) {
+            const sw = noise.sphere(lon * 1.5, lat * 1.5, 6.0, 3);
+            mix3(tmp, storm, smoothstep(1, 0.2, ed) * (0.6 + sw * 0.4), tmp);
+          }
+        }
+        out[p] = tmp[0] * grade[0]; out[p + 1] = tmp[1] * grade[1]; out[p + 2] = tmp[2] * grade[2];
       }
     }
     return { albedo: out, spec };
   }
 
   const pal = palettes[kind];
+  const grade = colourGrade(traits.seed, kind === 'terran' || kind === 'ocean' ? 0.7 : 1);
+  const relief = reliefBy[kind] || 4;
   const seaLevel = kind === 'ocean' ? 0.62 : kind === 'desert' || kind === 'barren' ? 0.16 : 0.48;
   const hasWater = kind === 'terran' || kind === 'ocean';
   const iceCap = kind === 'ice' ? 0 : hasWater ? 0.74 : 0.9;
+
+  function height(lon, lat) {
+    let e = noise.sphere(lon, lat, 2.7, 4) * 0.78 + noise.sphere(lon, lat, 7.5, 3) * 0.22;
+    if (kind === 'barren') {
+      const r = noise.sphere(lon + 9, lat, 5.5, 3);
+      e = e * 0.55 + (1 - Math.abs(r * 2 - 1)) * 0.45;     // pitted, cratered
+    } else if (kind === 'desert') {
+      const w = noise.sphere(lon, lat, 3.0, 2);
+      e = e * 0.82 + (Math.sin(lat * 52 + w * 12) * 0.5 + 0.5) * 0.18;  // dunes
+    } else if (kind === 'ice') {
+      const f = noise.sphere(lon + 3, lat, 6.0, 2);
+      e = e * 0.85 + (1 - Math.abs(f * 2 - 1)) * 0.15;     // ridged frost
+    }
+    return e;
+  }
+
+  // bake the height field once so the relief shading can read neighbours
+  const H = new Float32Array(TW * TH);
+  let hi = 0;
+  for (let y = 0; y < TH; y++) {
+    const lat = (y / TH - 0.5) * Math.PI;
+    for (let x = 0; x < TW; x++) H[hi++] = height((x / TW) * TAU, lat);
+  }
+
   for (let y = 0; y < TH; y++) {
     const lat = (y / TH - 0.5) * Math.PI;
     const latAbs = Math.abs(y / TH - 0.5) * 2;
+    const row = y * TW;
     for (let x = 0; x < TW; x++, p += 3, s++) {
       const lon = (x / TW) * TAU;
-      let e = noise.sphere(lon, lat, 2.6, 5) * 0.8 + noise.sphere(lon, lat, 7.0, 3) * 0.2;
+      const e = H[row + x];
       let isWater = false;
 
       if (hasWater && e < seaLevel) {
@@ -200,8 +259,8 @@ function buildAlbedo(traits, TW, TH) {
         if (kind === 'lava') {
           mix3(pal.low, pal.high, smoothstep(0, 0.6, t), tmp);
           const crack = noise.sphere(lon, lat, 9.0, 3);
-          if (crack > 0.66) {
-            const glow = smoothstep(0.66, 0.86, crack);
+          if (crack > 0.64) {
+            const glow = smoothstep(0.64, 0.86, crack);
             tmp[0] = lerp(tmp[0], 255, glow);
             tmp[1] = lerp(tmp[1], 120, glow * 0.9);
             tmp[2] = lerp(tmp[2], 40, glow * 0.7);
@@ -216,6 +275,20 @@ function buildAlbedo(traits, TW, TH) {
         }
       }
 
+      // ice fractures, thin bright veins through the frost
+      if (kind === 'ice') {
+        const fr = noise.sphere(lon + 5, lat, 11.0, 2);
+        if (fr > 0.68) mix3(tmp, [232, 244, 255], smoothstep(0.68, 0.82, fr) * 0.6, tmp);
+      }
+
+      // relief: shade the land by its local slope so terrain reads as 3D
+      if (!isWater && relief > 0) {
+        const east = H[row + (x + 1) % TW];
+        const south = y < TH - 1 ? H[row + TW + x] : e;
+        const sh = clamp(1 - ((east - e) + (south - e)) * relief, 0.62, 1.42);
+        tmp[0] *= sh; tmp[1] *= sh; tmp[2] *= sh;
+      }
+
       if (kind !== 'lava') {
         const edge = iceCap - noise.sphere(lon, lat, 4.0, 2) * 0.16;
         if (latAbs > edge) {
@@ -224,7 +297,7 @@ function buildAlbedo(traits, TW, TH) {
         }
       }
 
-      out[p] = tmp[0]; out[p + 1] = tmp[1]; out[p + 2] = tmp[2];
+      out[p] = tmp[0] * grade[0]; out[p + 1] = tmp[1] * grade[1]; out[p + 2] = tmp[2] * grade[2];
       spec[s] = isWater ? 255 : 0;
     }
   }
@@ -254,7 +327,7 @@ export function bakePlanet(traits, R) {
   R = Math.round(R);
   if (traits.bake && traits.bake.R === R) return traits.bake;
   const D = R * 2;
-  const TW = 360, TH = 180;
+  const TW = 320, TH = 160;
   const { albedo, spec } = buildAlbedo(traits, TW, TH);
   const clouds = buildClouds(traits, TW, TH);
   const hasClouds = traits.cloudCover > 0.001;
