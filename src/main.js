@@ -116,6 +116,7 @@ function warpTo(swap, dur = 0.72) {
 }
 
 function enterUniverse(seed) {
+  audio.whoosh(1);
   setSeed(seed);
   const [sx, sy] = findStart();
   cam.x = cam.tx = sx; cam.y = cam.ty = sy;
@@ -130,6 +131,7 @@ function enterUniverse(seed) {
 }
 
 function enterStar(star) {
+  audio.whoosh(0.6);
   state.star = star;
   state.starId = star.id;
   state.galaxy.nameOf(star);
@@ -145,6 +147,7 @@ function enterStar(star) {
 }
 
 function enterPlanet(idx) {
+  audio.whoosh(0.4);
   state.planetIdx = idx;
   const p = state.system.planets[idx];
   state.planet = p.traits;
